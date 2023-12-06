@@ -3,7 +3,7 @@ import torch
 
 from Utility import AverageMeter, TopKAccuracy
 
-def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "Parallel"):
+def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "multiple"):
     """
     Train one epoch with given data loader, network, optimizer and loss function
 
@@ -24,8 +24,8 @@ def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "Parall
     rank : int
         The rank of current process, used for logging
 
-    mode : str
-        Parallel or Serial
+    mode : str, default = "multiple"
+        multiple or single
     """
     batchTime = AverageMeter("BatchTime")
     dataTime = AverageMeter("DataTime")
@@ -57,18 +57,18 @@ def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "Parall
 
         batchTime.Update((time.perf_counter_ns() - startTime) / 1e6)
 
-    if mode == "Parallel":
+    if mode == "multiple":
         batchTime.AllReduce()
         dataTime.AllReduce()
         losses.AllReduce()
         top1Accuracies.AllReduce()
         top5Accuracies.AllReduce()
 
-    if mode == "Serial":
+    if mode == "single":
         top1Accuracies.Average = top1Accuracies.Average.item()
         top5Accuracies.Average = top5Accuracies.Average.item()
 
-    if rank == 0 or mode == "Serial":
+    if rank == 0 or mode == "single":
         toPrint = f"\nEpoch [{epoch}]\n"
         toPrint += f"Train:      [loss, accuray] -> [{losses.Average:.4e}, ({top1Accuracies.Average:.2f}%, {top5Accuracies.Average:.2f}%)], "
         toPrint += f"[bacth time, data time] -> [{batchTime.Average:.6f}ms, {dataTime.Average:.6f}ms]"
@@ -76,7 +76,7 @@ def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "Parall
 
     return losses.Average, top1Accuracies.Average
 
-def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "Parallel"):
+def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multiple"):
     """
     Evaluate the network with given data loader and loss function
 
@@ -98,8 +98,8 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "Paral
     worldSize : int
         The number of processes, used for logging
 
-    mode : str
-        Parallel or Serial
+    mode : str, default = "multiple"
+        multiple or single
     """
     def EvaluateLoop(loader):
         with torch.no_grad():
@@ -127,7 +127,7 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "Paral
     net.eval()
     EvaluateLoop(testLoader)
 
-    if mode == "Parallel":
+    if mode == "multiple":
         if len(testLoader.sampler) * worldSize < len(testLoader.dataset):
             auxiliaryTestDataset = torch.utils.data.Subset(
                 testLoader.dataset,
@@ -144,11 +144,11 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "Paral
         top1Accuracies.AllReduce()
         top5Accuracies.AllReduce()
 
-    if mode == "Serial":
+    if mode == "single":
         top1Accuracies.Average = top1Accuracies.Average.item()
         top5Accuracies.Average = top5Accuracies.Average.item()
 
-    if rank == 0 or mode == "Serial":
+    if rank == 0 or mode == "single":
         toPrint = ""
         toPrint += f"{name}:{' ' if len(name) > 4 else '       '}[loss, accuray] -> [{losses.Average:.4e}, ({top1Accuracies.Average:.2f}%, {top5Accuracies.Average:.2f}%)], "
         toPrint += f"bacth time -> {batchTime.Average:.6f}ms"

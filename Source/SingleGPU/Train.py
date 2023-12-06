@@ -34,12 +34,11 @@ def GetNet(configuration):
     net = getattr(ExampleNetwork, configuration["NetName"])(*parameters)
     return net
 
-def SerialTrainWorker(configuration):
+def TrainWorker(configuration, logFile):
     """
-    Worker function for serial training
+    Worker function for single GPU training
     Components like network, optimizer will be constructed for each process
     """
-    logFile = open(os.path.join(configuration["SaveFolder"], "Log.txt"), mode = "w")
     sys.stdout = StandardOutputDuplicator(sys.stdout, logFile)
 
     net = GetNet(configuration).cuda()
@@ -80,14 +79,14 @@ def SerialTrainWorker(configuration):
         # Train one epoch
         trainLoss, trainAccuracy = Train(
             trainLoader, net, optimizer,
-            lossFunction, epoch, 0, mode = "Serial"
+            lossFunction, epoch, 0, mode = "single"
         )
 
         # Do evaluation (some dataset has no validation set)
         if len(validationLoader.dataset) > 0:
             validationLoss, validationAccuracy = Evaluate(
                 validationLoader, net, lossFunction,
-                "Validation", 0, 0, mode = "Serial"
+                "Validation", 0, 0, mode = "single"
             )
         else:
             validationLoss, validationAccuracy = None, None
@@ -96,7 +95,7 @@ def SerialTrainWorker(configuration):
         # Set testLoss and testAccuracy to None if you don't want to do it every epoch
         testLoss, testAccuracy = Evaluate(
             testLoader, net, lossFunction,
-            "Test", 0, 0, mode = "Serial"
+            "Test", 0, 0, mode = "single"
         )
 
         # Step the learn rate scheduler
@@ -135,10 +134,11 @@ def Main(configuration):
     configuration["SaveFolder"] = saveFolder
 
     try:
-        result = SerialTrainWorker(configuration)
+        logFile = open(os.path.join(configuration["SaveFolder"], "Log.txt"), mode = "w")
+        result = TrainWorker(configuration, logFile)
     except Exception as e:
         # If any exception occurs, delete the save folder
-        # Does not work in Serial because the log file is still open by the main process
+        logFile.close()
         shutil.rmtree(configuration["SaveFolder"])
         raise e
     else:

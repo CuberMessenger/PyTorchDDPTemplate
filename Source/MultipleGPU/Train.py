@@ -59,7 +59,7 @@ def GetNet(configuration):
     net = getattr(ExampleNetwork, configuration["NetName"])(*parameters)
     return net
 
-def ParallelTrainWorker(rank, worldSize, sharedDictionary):
+def DDPTrainWorker(rank, worldSize, sharedDictionary):
     """
     Worker function for parallel training
     Components like network, optimizer will be constructed for each process
@@ -125,14 +125,14 @@ def ParallelTrainWorker(rank, worldSize, sharedDictionary):
         # Train one epoch
         trainLoss, trainAccuracy = Train(
             trainLoader, net, optimizer,
-            lossFunction, epoch, rank, mode = "Parallel"
+            lossFunction, epoch, rank, mode = "multiple"
         )
 
         # Do evaluation (some dataset has no validation set)
         if len(validationLoader.dataset) > 0:
             validationLoss, validationAccuracy = Evaluate(
                 validationLoader, net, lossFunction,
-                "Validation", rank, worldSize, mode = "Parallel"
+                "Validation", rank, worldSize, mode = "multiple"
             )
         else:
             validationLoss, validationAccuracy = None, None
@@ -141,7 +141,7 @@ def ParallelTrainWorker(rank, worldSize, sharedDictionary):
         # Set testLoss and testAccuracy to None if you don't want to do it every epoch
         testLoss, testAccuracy = Evaluate(
             testLoader, net, lossFunction,
-            "Test", rank, worldSize, mode = "Parallel"
+            "Test", rank, worldSize, mode = "multiple"
         )
 
         # Step the learn rate scheduler
@@ -190,7 +190,7 @@ def Main(configuration):
 
             configuration["BatchSize"] = configuration["BatchSize"] // configuration["NumOfGPU"]
             mp.spawn(
-                ParallelTrainWorker,
+                DDPTrainWorker,
                 args = (configuration["NumOfGPU"], sharedDictionary),
                 nprocs = configuration["NumOfGPU"]
             )
