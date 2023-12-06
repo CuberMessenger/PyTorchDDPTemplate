@@ -134,11 +134,10 @@ def Main(configuration):
     configuration["SaveFolder"] = saveFolder
 
     try:
-        logFile = open(os.path.join(configuration["SaveFolder"], "Log.txt"), mode = "w")
-        result = TrainWorker(configuration, logFile)
+        with open(os.path.join(configuration["SaveFolder"], "Log.txt"), mode = "w") as logFile:
+            result = TrainWorker(configuration, logFile)
     except Exception as e:
         # If any exception occurs, delete the save folder
-        logFile.close()
         shutil.rmtree(configuration["SaveFolder"])
         raise e
     else:
