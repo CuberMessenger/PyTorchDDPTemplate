@@ -101,12 +101,19 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multi
     mode : str, default = "multiple"
         multiple or single
     """
+    batchTime = AverageMeter("BatchTime")
+    losses = AverageMeter("Losses")
+    top1Accuracies = AverageMeter("Top1Accuracy")
+    top5Accuracies = AverageMeter("Top5Accuracy")
+
     def EvaluateLoop(loader):
         with torch.no_grad():
             startTime = time.perf_counter_ns()
             for batchData, batchLabel in loader:
                 batchData = batchData.cuda()
                 batchLabel = batchLabel.cuda()
+
+                # print(f"GPU {rank} got {len(batchData)} samples")
 
                 batchPredict = net(batchData)
                 loss = lossFunction(batchPredict, batchLabel)
@@ -119,16 +126,112 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multi
 
                 batchTime.Update((time.perf_counter_ns() - startTime) / 1e6)
 
-    batchTime = AverageMeter("BatchTime")
-    losses = AverageMeter("Losses")
-    top1Accuracies = AverageMeter("Top1Accuracy")
-    top5Accuracies = AverageMeter("Top5Accuracy")
+    """
+    Testing/inferencing in DDP can be really tricky
+    Suppose the dataset has 30 samples, runnning on 2 GPUs
+    The dataset can be viewed as:
+
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    Attention: the following scenarios are logged when:
+        1. Sampler: drop_last = True
+        2. Dataloader: drop_last = False (default)
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # if the batch size is 5, then everything is fine. Log:
+        GPU 1 got 5 samples
+        GPU 0 got 5 samples
+        GPU 1 got 5 samples
+        GPU 0 got 5 samples
+        GPU 1 got 5 samples
+        GPU 0 got 5 samples
+
+        len(testLoader.sampler): 15
+        worldSize: 2
+        len(testLoader.dataset): 30
+
+    # if the batch size is 6, the first 24 samples works fine and the rest 6 samples can also divided by 2 (num of GPU)
+    then each GPU will haddle 3 samples. Log:
+        GPU 1 got 6 samples
+        GPU 0 got 6 samples
+        GPU 1 got 6 samples
+        GPU 1 got 3 samples
+        GPU 0 got 6 samples
+        GPU 0 got 3 samples
+
+        len(testLoader.sampler): 15
+        worldSize: 2
+        len(testLoader.dataset): 30
+
+    # if the batch size is 5, but the dataset has 31 samples,
+    the first 30 samples works fine, but the last sample cannot be divided by 2 (num of GPU)
+    Then an auxiliary dataset with 1 sample will be created:
+        GPU 1 got 5 samples
+        GPU 0 got 5 samples
+        GPU 0 got 5 samples
+        GPU 0 got 5 samples
+        GPU 1 got 5 samples
+        GPU 1 got 5 samples
+
+        len(testLoader.sampler): 15
+        worldSize: 2
+        len(testLoader.dataset): 31
+
+        GPU 0: Constructing auxiliary dataset
+        GPU 0 got 1 samples
+
+    # if the batch size is 5, the dataset has 33 samples,
+    the first 30 samples works normally, the first two of the last three will be send to the two GPUs
+    the last one will be the auxiliary dataset:
+        GPU 1 got 5 samples
+        GPU 0 got 5 samples
+        GPU 1 got 5 samples
+        GPU 1 got 5 samples
+        GPU 1 got 1 samples
+        GPU 0 got 5 samples
+        GPU 0 got 5 samples
+        GPU 0 got 1 samples
+
+        len(testLoader.sampler): 16
+        worldSize: 2
+        len(testLoader.dataset): 33
+
+        GPU 0: Constructing auxiliary dataset
+        GPU 0 got 1 samples
+    """
 
     net.eval()
     EvaluateLoop(testLoader)
 
+    """
+    Continue the example with batch size = 5 and 33 samples
+    After running the EvaluateLoop above, the pattern of the two GPUs handling the data can be:
+    00000 11111 00000 11111 00000 11111 0 1 -
+    # It may be another pattern like: 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01
+    # But it doesn't matter, the following analysis should be the same
+    The "-" at last represent the sample left which need to be handled specially
+    Also, there are two sets of loss and accuracy AverageMeter objects on the two GPUs:
+    GPU0: loss, accuracy objects carrying results of the 16 samples (1~5, 11~15, 21~25, 31)
+    GPU1: loss, accuracy objects carrying results of the 16 samples (6~10, 16~20, 26~30, 32)
+    """
+
     if mode == "multiple":
+        batchTime.AllReduce()
+        losses.AllReduce()
+        top1Accuracies.AllReduce()
+        top5Accuracies.AllReduce()
+
+    """
+    Here, we first do the all reduce for the loss and accuracy objects
+    In the AllReduce function, tensors from different processes should be summed and synced:
+    GPU0: loss, accuracy objects carrying results of the 32 samples (1~32)
+    GPU1: loss, accuracy objects carrying results of the 32 samples (1~32)
+    """
+
+    if mode == "multiple":
+        # print(f"len(testLoader.sampler): {len(testLoader.sampler)}")
+        # print(f"worldSize: {worldSize}")
+        # print(f"len(testLoader.dataset): {len(testLoader.dataset)}")
         if len(testLoader.sampler) * worldSize < len(testLoader.dataset):
+            # print(f"GPU {rank}: Constructing auxiliary dataset")
             auxiliaryTestDataset = torch.utils.data.Subset(
                 testLoader.dataset,
                 range(len(testLoader.sampler) * worldSize, len(testLoader.dataset))
@@ -137,12 +240,23 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multi
                 auxiliaryTestDataset, batch_size = testLoader.batch_size, shuffle = False,
                 num_workers = testLoader.num_workers, persistent_workers = testLoader.persistent_workers, pin_memory = True
             )
-            EvaluateLoop(auxiliaryTestLoader, jump = len(testLoader))
+            EvaluateLoop(auxiliaryTestLoader)
 
-        batchTime.AllReduce()
-        losses.AllReduce()
-        top1Accuracies.AllReduce()
-        top5Accuracies.AllReduce()
+    """
+    Here's the special cases: the dataset cannot be evenly divided by the batch size and the number of GPUs
+    In this case, we create an auxiliary dataset and loader for the left sample
+    Naturally, one may want to run the auxiliary dataset on one of the GPUs(processes)
+    But normally the auxiliary dataset is very small (0 < numOfSample < numOfGPU) which cost subtle time to run
+    We run the auxiliary dataset on all GPUs(processes) to avoid any possible bad affect on synchronization
+    After running the auxiliary dataset, the pattern of the AverageMeter objects on the two  GPUs can be:
+    GPU0: loss, accuracy objects carrying results of the 33 samples (1~33)
+    GPU1: loss, accuracy objects carrying results of the 33 samples (1~33)
+
+    if you only run the auxiliary dataset on GPU 0, it will be:
+    GPU0: loss, accuracy objects carrying results of the 33 samples (1~33)
+    GPU1: loss, accuracy objects carrying results of the 32 samples (1~32)
+    In this case, do not use the result come from GPU 1, which is also a really weird scenario
+    """
 
     if mode == "single":
         top1Accuracies.Average = top1Accuracies.Average.item()

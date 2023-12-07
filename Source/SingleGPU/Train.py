@@ -37,7 +37,6 @@ def GetNet(configuration):
 def TrainWorker(configuration, logFile):
     """
     Worker function for single GPU training
-    Components like network, optimizer will be constructed for each process
     """
     sys.stdout = StandardOutputDuplicator(sys.stdout, logFile)
 
@@ -84,7 +83,7 @@ def TrainWorker(configuration, logFile):
 
         # Do evaluation (some dataset has no validation set)
         if len(validationLoader.dataset) > 0:
-            validationLoss, validationAccuracy = Evaluate(
+            validationLoss, validationAccuracy, _ = Evaluate(
                 validationLoader, net, lossFunction,
                 "Validation", 0, 0, mode = "single"
             )
@@ -93,7 +92,7 @@ def TrainWorker(configuration, logFile):
 
         # Do evaluation on test set
         # Set testLoss and testAccuracy to None if you don't want to do it every epoch
-        testLoss, testAccuracy = Evaluate(
+        testLoss, testAccuracy, _ = Evaluate(
             testLoader, net, lossFunction,
             "Test", 0, 0, mode = "single"
         )
@@ -128,7 +127,7 @@ def Main(configuration):
 
     saveFolder = os.path.join(
         configuration["ResultFolder"],
-        f"{configuration['NetName']}-{configuration['DatasetName']}-" + time.strftime("%Y-%m-%d-%H.%M.%S", time.localtime())
+        f"{configuration['NetName']}-{configuration['DatasetName']}-{time.strftime('%Y-%m-%d-%H.%M.%S', time.localtime())}"
     )
     os.mkdir(saveFolder)
     configuration["SaveFolder"] = saveFolder

@@ -130,7 +130,7 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
 
         # Do evaluation (some dataset has no validation set)
         if len(validationLoader.dataset) > 0:
-            validationLoss, validationAccuracy = Evaluate(
+            validationLoss, validationAccuracy, _ = Evaluate(
                 validationLoader, net, lossFunction,
                 "Validation", rank, worldSize, mode = "multiple"
             )
@@ -139,7 +139,7 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
 
         # Do evaluation on test set
         # Set testLoss and testAccuracy to None if you don't want to do it every epoch
-        testLoss, testAccuracy = Evaluate(
+        testLoss, testAccuracy, _ = Evaluate(
             testLoader, net, lossFunction,
             "Test", rank, worldSize, mode = "multiple"
         )
@@ -169,6 +169,8 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
     if rank == 0:
         print(f"Best epoch -> {bestEpoch}")
         sharedDictionary["Result"] = result
+
+    CleanEnvironment()
         
 def Main(configuration):
     """
@@ -179,7 +181,7 @@ def Main(configuration):
 
     saveFolder = os.path.join(
         configuration["ResultFolder"],
-        f"{configuration['NetName']}-{configuration['DatasetName']}-" + time.strftime("%Y-%m-%d-%H.%M.%S", time.localtime())
+        f"{configuration['NetName']}-{configuration['DatasetName']}-{time.strftime('%Y-%m-%d-%H.%M.%S', time.localtime())}"
     )
     os.mkdir(saveFolder)
     configuration["SaveFolder"] = saveFolder
