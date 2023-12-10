@@ -148,9 +148,9 @@ def GetDataLoaders(datasetName, batchSize, numOfWorker, saveFolder, distributed 
     persistentWorkers = numOfWorker > 0
     trainSampler, validationSampler, testSampler = None, None, None
     if distributed:
-        trainSampler = torch.utils.data.distributed.DistributedSampler(trainSet)
-        validationSampler = torch.utils.data.distributed.DistributedSampler(validationSet, shuffle = False)
-        testSampler = torch.utils.data.distributed.DistributedSampler(testSet, shuffle = False)
+        trainSampler = torch.utils.data.distributed.DistributedSampler(trainSet, drop_last = True)
+        validationSampler = torch.utils.data.distributed.DistributedSampler(validationSet, shuffle = False, drop_last = True)
+        testSampler = torch.utils.data.distributed.DistributedSampler(testSet, shuffle = False, drop_last = True)
     trainLoader = torch.utils.data.DataLoader(
         trainSet, batch_size = batchSize, shuffle = not distributed, sampler = trainSampler,
         num_workers = numOfWorker, persistent_workers = persistentWorkers, pin_memory = True

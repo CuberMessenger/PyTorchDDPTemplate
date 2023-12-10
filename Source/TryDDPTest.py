@@ -59,10 +59,14 @@ def Worker(rank, worldSize):
 
     sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle = False, drop_last = True)
     loader = torch.utils.data.DataLoader(
-        dataset, batch_size = 5, sampler = sampler, drop_last = False,
+        dataset, batch_size = 5, sampler = sampler,# drop_last = False,
         num_workers = 2, persistent_workers = True, pin_memory = True
     )
+    print(f"Sampler drop_last: {sampler.drop_last}")
+    print(f"Loader drop_last: {loader.drop_last}")
 
+    CleanEnvironment()
+    return
     _ = Evaluate(
         loader, net, lossFunction,
         "Test", rank, worldSize, mode = "multiple"

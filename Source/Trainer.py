@@ -106,6 +106,7 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multi
     top1Accuracies = AverageMeter("Top1Accuracy")
     top5Accuracies = AverageMeter("Top5Accuracy")
 
+    predictions = []
     def EvaluateLoop(loader):
         with torch.no_grad():
             startTime = time.perf_counter_ns()
@@ -126,17 +127,42 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multi
 
                 batchTime.Update((time.perf_counter_ns() - startTime) / 1e6)
 
+                predictions.append(predictions)
+
     """
     Testing/inferencing in DDP can be really tricky
-    Suppose the dataset has 30 samples, runnning on 2 GPUs
-    The dataset can be viewed as:
+
+    Before you go further, you may need to know basics about how DDP sync tensors among GPUs
+    It can be found at: https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
+    and: https://pytorch.org/docs/master/notes/ddp.html
+    You also may want to check the definition of AverageMeter
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    Attention: the following scenarios are logged when:
+    Attention: the following scenarios are discussed when:
         1. Sampler: drop_last = True
-        2. Dataloader: drop_last = False (default)
+        2. Dataloader: drop_last = False (use default)
+        
+        Example:
+        sampler = torch.utils.data.distributed.DistributedSampler(..., drop_last = True)
+        loader = torch.utils.data.DataLoader(..., drop_last = False)
+
+        or
+
+        sampler = torch.utils.data.distributed.DistributedSampler(..., drop_last = True)
+        loader = torch.utils.data.DataLoader(...)
+
+        You can skip setting the drop_last of the dataloader explicitly since its default value is False
+
+        If you print the drop_last attribute of these two object, they will show:
+        sampler.drop_last: True
+        loader.drop_last: False
+
+        I'm still not sure how this parameters work internally,
+        but the following disscusion is empirical therefore it should be fine
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    # if the batch size is 5, then everything is fine. Log:
+
+    Suppose a DDP program is runnning on 2 GPUs
+    # if the batch size is 5, len(dataset) = 30, then everything is fine. Log:
         GPU 1 got 5 samples
         GPU 0 got 5 samples
         GPU 1 got 5 samples
@@ -148,7 +174,8 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multi
         worldSize: 2
         len(testLoader.dataset): 30
 
-    # if the batch size is 6, the first 24 samples works fine and the rest 6 samples can also divided by 2 (num of GPU)
+    # if the batch size is 6, len(dataset) = 30,
+    the first 24 samples works fine and the rest 6 samples can also divided by 2 (num of GPU)
     then each GPU will haddle 3 samples. Log:
         GPU 1 got 6 samples
         GPU 0 got 6 samples
@@ -161,7 +188,7 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multi
         worldSize: 2
         len(testLoader.dataset): 30
 
-    # if the batch size is 5, but the dataset has 31 samples,
+    # if the batch size is 5, but len(dataset) = 31,
     the first 30 samples works fine, but the last sample cannot be divided by 2 (num of GPU)
     Then an auxiliary dataset with 1 sample will be created:
         GPU 1 got 5 samples
@@ -178,7 +205,7 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multi
         GPU 0: Constructing auxiliary dataset
         GPU 0 got 1 samples
 
-    # if the batch size is 5, the dataset has 33 samples,
+    # if the batch size is 5, len(dataset) = 33,
     the first 30 samples works normally, the first two of the last three will be send to the two GPUs
     the last one will be the auxiliary dataset:
         GPU 1 got 5 samples
@@ -218,6 +245,7 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode = "multi
         losses.AllReduce()
         top1Accuracies.AllReduce()
         top5Accuracies.AllReduce()
+
 
     """
     Here, we first do the all reduce for the loss and accuracy objects
