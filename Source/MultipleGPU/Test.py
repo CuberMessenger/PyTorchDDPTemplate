@@ -57,8 +57,6 @@ def DDPTestWorker(rank, worldSize, sharedDictionary):
         "Test", rank, worldSize, mode = "multiple"
     )
 
-    
-
     CleanEnvironment()
 
     return testLoss, testAccuracy, testPredictions

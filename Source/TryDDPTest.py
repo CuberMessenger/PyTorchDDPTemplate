@@ -65,12 +65,13 @@ def Worker(rank, worldSize):
     print(f"Sampler drop_last: {sampler.drop_last}")
     print(f"Loader drop_last: {loader.drop_last}")
 
-    CleanEnvironment()
-    return
-    _ = Evaluate(
+    testLoss, testAccuracy, testPredictions = Evaluate(
         loader, net, lossFunction,
         "Test", rank, worldSize, mode = "multiple"
     )
+
+    if rank == 0:
+        print(testPredictions.size())
 
     CleanEnvironment()
 

@@ -74,7 +74,7 @@ def TrainWorker(configuration, logFile):
         # Do possible injector for control net during training
         if injector is not None:
             injector(net, epoch)
-
+ 
         # Train one epoch
         trainLoss, trainAccuracy = Train(
             trainLoader, net, optimizer,
