@@ -39,7 +39,9 @@ def CleanEnvironment():
 
 class DummyDataset(torch.utils.data.Dataset):
     def __init__(self, length, size, classes):
-        self.X = torch.rand((length, size))
+        self.X = torch.ones((length, size))
+        for i in range(length):
+            self.X[i] *= i
         self.Y = torch.randint(classes - 1, (length,))
 
     def __len__(self):
@@ -72,6 +74,9 @@ def Worker(rank, worldSize):
 
     if rank == 0:
         print(testPredictions.size())
+
+        for i, p in enumerate(testPredictions):
+            print(f"{i}: {p}")
 
     CleanEnvironment()
 

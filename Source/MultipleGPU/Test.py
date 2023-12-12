@@ -57,9 +57,16 @@ def DDPTestWorker(rank, worldSize, sharedDictionary):
         "Test", rank, worldSize, mode = "multiple"
     )
 
-    CleanEnvironment()
+    if rank == 0:
+        results = {
+            "TestLoss": testLoss,
+            "TestAccuracy": testAccuracy,
+            "TestPredictions": testPredictions
+        }
 
-    return testLoss, testAccuracy, testPredictions
+        torch.save(results, os.path.join(configuration["SaveFolder"], "TestResults.pt"))
+
+    CleanEnvironment()
         
 def Main(configuration):
     """

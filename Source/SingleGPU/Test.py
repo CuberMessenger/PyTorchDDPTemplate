@@ -32,10 +32,18 @@ def TestWorker(configuration, logFile):
         distributed = False
     )
 
-    return Evaluate(
+    testLoss, testAccuracy, testPredictions = Evaluate(
         testLoader, net, lossFunction,
         "Test", 0, 0, mode = "single"
     )
+
+    results = {
+        "TestLoss": testLoss,
+        "TestAccuracy": testAccuracy,
+        "TestPredictions": testPredictions
+    }
+
+    torch.save(results, os.path.join(configuration["SaveFolder"], "TestResults.pt"))
 
 def Main(configuration):
     if not os.path.exists(configuration["ResultFolder"]):
@@ -50,20 +58,12 @@ def Main(configuration):
 
     try:
         with open(os.path.join(configuration["SaveFolder"], "Log.txt"), mode = "w") as logFile:
-            testLoss, testAccuracy, testPredictions = TestWorker(configuration, logFile)
+            TestWorker(configuration, logFile)
     except Exception as e:
         # If any exception occurs, delete the save folder
         shutil.rmtree(configuration["SaveFolder"])
         raise e
     else:
-        results = {
-            "TestLoss": testLoss,
-            "TestAccuracy": testAccuracy,
-            "TestPredictions": testPredictions
-        }
-
-        torch.save(results, os.path.join(configuration["SaveFolder"], "TestResults.pt"))
-
         # Log the source code
         shutil.copy(
             __file__,

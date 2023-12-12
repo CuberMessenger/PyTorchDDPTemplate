@@ -135,8 +135,10 @@ def EvaluateSingle(testLoader, net, lossFunction, name):
     """
     predictions = torch.cat(batchPredictions, dim = 0)
 
-    top1Accuracies.Average = top1Accuracies.Average.item()
-    top5Accuracies.Average = top5Accuracies.Average.item()
+    if hasattr(top1Accuracies.Average, "item"):
+        top1Accuracies.Average = top1Accuracies.Average.item()
+    if hasattr(top5Accuracies.Average, "item"):
+        top5Accuracies.Average = top5Accuracies.Average.item()
 
     toPrint = ""
     toPrint += f"{name}:{' ' if len(name) > 4 else '       '}[loss, accuray] -> [{losses.Average:.4e}, ({top1Accuracies.Average:.2f}%, {top5Accuracies.Average:.2f}%)], "
@@ -180,7 +182,7 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
                 batchData = batchData.cuda()
                 batchLabel = batchLabel.cuda()
 
-                # print(f"GPU {rank} got {len(batchData)} samples")
+                print(f"GPU {rank} got {len(batchData)} samples")
 
                 batchPrediction = net(batchData)
                 loss = lossFunction(batchPrediction, batchLabel)
@@ -193,7 +195,15 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
 
                 batchTime.Update((time.perf_counter_ns() - startTime) / 1e6)
 
-                batchPredictions.append(batchPrediction)
+                # batchPredictions.append(batchPrediction)
+                batchPredictions.append(batchData)
+                """
+                Now the batched part is zig-zagging between the two GPUs
+                The merged prediction is like:
+                0 2 4 6 8 1 3 5 7 9 10 12 14 16 18 11 13 15 17 19 ...
+                plan to add a index tensor to record the original order
+                like: for i, (batchData, batchLabel) in enumerate(loader) ...
+                """
 
         return batchPredictions
 
@@ -328,11 +338,11 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
     GPU1: loss, accuracy objects carrying results of the 32 samples (1~32)
     """
 
-    # print(f"len(testLoader.sampler): {len(testLoader.sampler)}")
-    # print(f"worldSize: {worldSize}")
-    # print(f"len(testLoader.dataset): {len(testLoader.dataset)}")
+    print(f"len(testLoader.sampler): {len(testLoader.sampler)}")
+    print(f"worldSize: {worldSize}")
+    print(f"len(testLoader.dataset): {len(testLoader.dataset)}")
     if len(testLoader.sampler) * worldSize < len(testLoader.dataset):
-        # print(f"GPU {rank}: Constructing auxiliary dataset")
+        print(f"GPU {rank}: Constructing auxiliary dataset")
         auxiliaryTestDataset = torch.utils.data.Subset(
             testLoader.dataset,
             range(len(testLoader.sampler) * worldSize, len(testLoader.dataset))
@@ -362,12 +372,16 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
     GPU 1: Constructing auxiliary dataset
     GPU 1 got 1 samples
 
-
     if you only run the auxiliary dataset on GPU 0, it will be:
     GPU0: loss, accuracy objects carrying results of the 33 samples (1~33)
     GPU1: loss, accuracy objects carrying results of the 32 samples (1~32)
     In this case, do not use the result come from GPU 1, which is also a really weird scenario
     """
+
+    if hasattr(top1Accuracies.Average, "item"):
+        top1Accuracies.Average = top1Accuracies.Average.item()
+    if hasattr(top5Accuracies.Average, "item"):
+        top5Accuracies.Average = top5Accuracies.Average.item()
 
     if rank == 0:
         toPrint = ""
