@@ -4,6 +4,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 import time
 import shutil
+import argparse
 import torch
 import torch.nn as nn
 import torch.multiprocessing as mp
@@ -213,7 +214,7 @@ def Main(configuration):
 
 if __name__ == "__main__":
     configuration = {
-        "NumOfGPU": 2,
+        "NumOfGPU": None,
         "NumOfWorker": 8,
         "LearnRate": 1e-1,
         "BatchSize": 128,
@@ -223,4 +224,14 @@ if __name__ == "__main__":
         "DataFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Data"),
         "ResultFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Result")
     }
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num-of-gpu", type = int)
+    args = parser.parse_args()
+
+    if args.num_of_gpu is None:
+        configuration["NumOfGPU"] = torch.cuda.device_count()
+    else:
+        configuration["NumOfGPU"] = args.num_of_gpu
+
     Main(configuration)

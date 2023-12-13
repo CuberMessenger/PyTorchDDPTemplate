@@ -4,6 +4,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 import time
 import shutil
+import argparse
 import torch
 import torch.nn as nn
 import ExampleNetwork
@@ -49,9 +50,14 @@ def Main(configuration):
     if not os.path.exists(configuration["ResultFolder"]):
         os.mkdir(configuration["ResultFolder"])
 
+    folderName = os.path.basename(configuration["WeightFolder"])
+    if folderName == "":
+        # If the parsed path looks like "a/b/c/", the basename will be ""
+        folderName = os.path.basename(os.path.dirname(configuration["WeightFolder"]))
+
     saveFolder = os.path.join(
         configuration["ResultFolder"],
-        f"{os.path.basename(configuration['WeightFolder'])}-Test-{time.strftime('%Y-%m-%d-%H.%M.%S', time.localtime())}"
+        f"{folderName}-Test-{time.strftime('%Y-%m-%d-%H.%M.%S', time.localtime())}"
     )
     os.mkdir(saveFolder)
     configuration["SaveFolder"] = saveFolder
@@ -82,4 +88,11 @@ if __name__ == "__main__":
         "ResultFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Result"),
         "WeightFolder": None # path to a folder containing a Weights.pkl file
     }
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--weight-folder", type = str)
+    args = parser.parse_args()
+
+    configuration["WeightFolder"] = args.weight_folder
+
     Main(configuration)

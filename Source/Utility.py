@@ -134,3 +134,9 @@ class StandardOutputDuplicator:
 
     def flush(self):
         pass
+
+def MemoryUsage(rank):
+    """Memory usage in MB"""
+    torch.cuda.synchronize(rank)
+    freeMemory, totalMemory = torch.cuda.mem_get_info(rank)
+    return (totalMemory - freeMemory) / 1024 / 1024

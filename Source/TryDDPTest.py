@@ -10,7 +10,7 @@ import torch.multiprocessing as mp
 import ExampleNetwork
 
 from Trainer import Train, Evaluate
-from Dataset import GetDataLoaders
+from Dataset import GetDataLoaders, DatasetWithIdentity
 from Utility import Result, StandardOutputDuplicator
 
 def SetupEnvironment(rank, worldSize):
@@ -58,6 +58,7 @@ def Worker(rank, worldSize):
     lossFunction = nn.CrossEntropyLoss().cuda()
 
     dataset = DummyDataset(33, 20, 10)
+    dataset = DatasetWithIdentity(dataset)
 
     sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle = False, drop_last = True)
     loader = torch.utils.data.DataLoader(

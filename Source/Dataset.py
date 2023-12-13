@@ -44,12 +44,28 @@ class ImageNetDataset(Dataset):
     def __len__(self):
         return len(self.Samples)
 
-    def __getitem__(self, idx):
-        x = Image.open(self.Samples[idx]).convert("RGB")
+    def __getitem__(self, index):
+        x = Image.open(self.Samples[index]).convert("RGB")
         if self.Transform:
             x = self.Transform(x)
-        return x, self.Targets[idx]
+        return x, self.Targets[index]
 
+class DatasetWithIdentity(Dataset):
+    """
+    A dataset class that returns both the sample and its identity
+    If you wrap a dataset with this class, the returned tuple will be (sample, identity, index)
+    It is convenient to use this class to get the index of a sample, especially in DDP scneario
+    """
+    def __init__(self, dataset: Dataset):
+        self.Dataset = dataset
+
+    def __len__(self):
+        return len(self.Dataset)
+
+    def __getitem__(self, index):
+        toReturn = self.Dataset.__getitem__(index)
+        toReturn = toReturn + (index,)
+        return toReturn
 
 def GetDataLoaders(datasetName, batchSize, numOfWorker, saveFolder, distributed = False):
     """
@@ -140,6 +156,10 @@ def GetDataLoaders(datasetName, batchSize, numOfWorker, saveFolder, distributed 
         testSet = datasets.ImageFolder(root = os.path.join(saveFolder, "val"), transform = testTransform)
     else:
         raise Exception(f"Unknown dataset name {datasetName}")
+
+    trainSet = DatasetWithIdentity(trainSet)
+    validationSet = DatasetWithIdentity(validationSet)
+    testSet = DatasetWithIdentity(testSet)
 
     """
     On Windows, the data loading processes cost lots of time to start for every epoch

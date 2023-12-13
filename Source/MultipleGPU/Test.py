@@ -4,6 +4,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 import time
 import shutil
+import argparse
 import torch
 import torch.nn as nn
 import torch.multiprocessing as mp
@@ -11,7 +12,7 @@ import ExampleNetwork
 
 from Trainer import Train, Evaluate
 from Dataset import GetDataLoaders
-from Utility import Result, StandardOutputDuplicator
+from Utility import Result, StandardOutputDuplicator, MemoryUsage
 from Train import SetupEnvironment, CleanEnvironment, GetNet
 
 def DDPTestWorker(rank, worldSize, sharedDictionary):
@@ -40,8 +41,8 @@ def DDPTestWorker(rank, worldSize, sharedDictionary):
     torch.cuda.set_device(rank)
     net = GetNet(configuration).cuda()
     net = nn.parallel.DistributedDataParallel(net, device_ids = [rank])
-    net.load_state_dict(torch.load(os.path.join(configuration["WeightFolder"], "Weights.pkl")))
 
+    net.load_state_dict(sharedDictionary["Weight"])
     lossFunction = nn.CrossEntropyLoss().cuda()
 
     _, _, testLoader, _ = GetDataLoaders(
@@ -75,18 +76,34 @@ def Main(configuration):
     if not os.path.exists(configuration["ResultFolder"]):
         os.mkdir(configuration["ResultFolder"])
 
+    folderName = os.path.basename(configuration["WeightFolder"])
+    if folderName == "":
+        # If the parsed path looks like "a/b/c/", the basename will be ""
+        folderName = os.path.basename(os.path.dirname(configuration["WeightFolder"]))
+
     saveFolder = os.path.join(
         configuration["ResultFolder"],
-        f"{os.path.basename(configuration['WeightFolder'])}-Test-{time.strftime('%Y-%m-%d-%H.%M.%S', time.localtime())}"
+        f"{folderName}-Test-{time.strftime('%Y-%m-%d-%H.%M.%S', time.localtime())}"
     )
     os.mkdir(saveFolder)
     configuration["SaveFolder"] = saveFolder
 
     try:
         with mp.Manager() as manager:
-            sharedDictionary = manager.dict({"Configuration": configuration})
+            sharedDictionary = manager.dict({
+                "Configuration": configuration,
+                "Weight": torch.load(os.path.join(configuration["WeightFolder"], "Weights.pkl"), map_location = "cpu")
+            })
+            """
+            It is important to load the weights to cpu
+            Otherwise, the weights will be loaded to the device it was saved from (normally GPU 0)
+            It will cost non-negligible GPU memory and will not be collected automatically
+
+            Also, the weight is loaded here in the main process to avoid duplicating it in CPU memory
+            """
 
             configuration["BatchSize"] = configuration["BatchSize"] // configuration["NumOfGPU"]
+
             mp.spawn(
                 DDPTestWorker,
                 args = (configuration["NumOfGPU"], sharedDictionary),
@@ -99,8 +116,6 @@ def Main(configuration):
         shutil.rmtree(configuration["SaveFolder"])
         raise e
     else:
-        sharedDictionary["Result"].Save(os.path.join(configuration["SaveFolder"], f"Result.txt"))
-
         # Log the source code
         shutil.copy(
             __file__,
@@ -109,7 +124,7 @@ def Main(configuration):
 
 if __name__ == "__main__":
     configuration = {
-        "NumOfGPU": 2,
+        "NumOfGPU": None,
         "NumOfWorker": 8,
         "LearnRate": 1e-1,
         "BatchSize": 128,
@@ -117,6 +132,19 @@ if __name__ == "__main__":
         "NetName": "FCNN", # should be defined in ExampleNetwork.py
         "DatasetName": "MNIST", # should be able to be recognized by GetDataLoaders in Dataset.py
         "DataFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Data"),
-        "ResultFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Result")
+        "ResultFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Result"),
+        "WeightFolder": None
     }
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num-of-gpu", type = int)
+    parser.add_argument("--weight-folder", type = str)
+    args = parser.parse_args()
+
+    if args.num_of_gpu is None:
+        configuration["NumOfGPU"] = torch.cuda.device_count()
+    else:
+        configuration["NumOfGPU"] = args.num_of_gpu
+    configuration["WeightFolder"] = args.weight_folder
+
     Main(configuration)

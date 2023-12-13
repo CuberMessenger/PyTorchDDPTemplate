@@ -36,7 +36,7 @@ def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "multip
     net.train()
 
     startTime = time.perf_counter_ns()
-    for batchData, batchLabel in trainLoader:
+    for batchData, batchLabel, _ in trainLoader:
         dataTime.Update((time.perf_counter_ns() - startTime) / 1e6)
 
         batchData = batchData.cuda()
@@ -101,7 +101,7 @@ def EvaluateSingle(testLoader, net, lossFunction, name):
         batchPredictions = []
         with torch.no_grad():
             startTime = time.perf_counter_ns()
-            for batchData, batchLabel in loader:
+            for batchData, batchLabel, _ in loader: 
                 batchData = batchData.cuda()
                 batchLabel = batchLabel.cuda()
 
@@ -118,6 +118,8 @@ def EvaluateSingle(testLoader, net, lossFunction, name):
 
                 batchTime.Update((time.perf_counter_ns() - startTime) / 1e6)
 
+                # Here, the loader is assumed to be not shuffled
+                # If shuffled or any disorder appears, you should use the index (the third return value of the loader)
                 batchPredictions.append(batchPrediction)
 
         return batchPredictions
@@ -175,14 +177,16 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
     top5Accuracies = AverageMeter("Top5Accuracy")
 
     def EvaluateLoop(loader):
+        batchIndexes = []
         batchPredictions = []
         with torch.no_grad():
             startTime = time.perf_counter_ns()
-            for batchData, batchLabel in loader:
+            for batchData, batchLabel, batchIndex in loader:
                 batchData = batchData.cuda()
                 batchLabel = batchLabel.cuda()
+                batchIndex = batchIndex.cuda()
 
-                print(f"GPU {rank} got {len(batchData)} samples")
+                # print(f"GPU {rank} got {len(batchData)} samples")
 
                 batchPrediction = net(batchData)
                 loss = lossFunction(batchPrediction, batchLabel)
@@ -195,17 +199,10 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
 
                 batchTime.Update((time.perf_counter_ns() - startTime) / 1e6)
 
-                # batchPredictions.append(batchPrediction)
-                batchPredictions.append(batchData)
-                """
-                Now the batched part is zig-zagging between the two GPUs
-                The merged prediction is like:
-                0 2 4 6 8 1 3 5 7 9 10 12 14 16 18 11 13 15 17 19 ...
-                plan to add a index tensor to record the original order
-                like: for i, (batchData, batchLabel) in enumerate(loader) ...
-                """
+                batchIndexes.append(batchIndex)
+                batchPredictions.append(batchPrediction)
 
-        return batchPredictions
+        return batchIndexes, batchPredictions
 
     """
     Testing/inferencing in DDP can be really tricky
@@ -304,7 +301,7 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
     """
 
     net.eval()
-    batchPredictions = EvaluateLoop(testLoader)
+    batchIndexes, batchPredictions = EvaluateLoop(testLoader)
 
     """
     Continue the example with batch size = 5 and 33 samples
@@ -323,12 +320,18 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
     top1Accuracies.AllReduce()
     top5Accuracies.AllReduce()
 
+    indexes = []
     predictions = []
-    for batchPrediction in batchPredictions:
+    for batchIndex, batchPrediction in zip(batchIndexes, batchPredictions):
+        gatheredBatchIndex = [torch.zeros_like(batchIndex) for _ in range(worldSize)]
+        torch.distributed.all_gather(gatheredBatchIndex, batchIndex, async_op = False)
+        indexes.append(torch.cat(gatheredBatchIndex, dim = 0))
+
         gatheredBatchPrediction = [torch.zeros_like(batchPrediction) for _ in range(worldSize)]
         torch.distributed.all_gather(gatheredBatchPrediction, batchPrediction, async_op = False)
         predictions.append(torch.cat(gatheredBatchPrediction, dim = 0))
 
+    indexes = torch.cat(indexes, dim = 0)
     predictions = torch.cat(predictions, dim = 0)
 
     """
@@ -338,11 +341,11 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
     GPU1: loss, accuracy objects carrying results of the 32 samples (1~32)
     """
 
-    print(f"len(testLoader.sampler): {len(testLoader.sampler)}")
-    print(f"worldSize: {worldSize}")
-    print(f"len(testLoader.dataset): {len(testLoader.dataset)}")
+    # print(f"len(testLoader.sampler): {len(testLoader.sampler)}")
+    # print(f"worldSize: {worldSize}")
+    # print(f"len(testLoader.dataset): {len(testLoader.dataset)}")
     if len(testLoader.sampler) * worldSize < len(testLoader.dataset):
-        print(f"GPU {rank}: Constructing auxiliary dataset")
+        # print(f"GPU {rank}: Constructing auxiliary dataset")
         auxiliaryTestDataset = torch.utils.data.Subset(
             testLoader.dataset,
             range(len(testLoader.sampler) * worldSize, len(testLoader.dataset))
@@ -351,9 +354,12 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
             auxiliaryTestDataset, batch_size = testLoader.batch_size, shuffle = False,
             num_workers = testLoader.num_workers, persistent_workers = testLoader.persistent_workers, pin_memory = True
         )
-        auxiliaryBatchPredictions = EvaluateLoop(auxiliaryTestLoader)
+        auxiliaryBatchIndexes, auxiliaryBatchPredictions = EvaluateLoop(auxiliaryTestLoader)
 
+        indexes = torch.cat([indexes] + auxiliaryBatchIndexes, dim = 0)
         predictions = torch.cat([predictions] + auxiliaryBatchPredictions, dim = 0)
+
+    predictions = predictions[indexes.argsort()]
 
     """
     Here's the special cases: the dataset cannot be evenly divided by the batch size and the number of GPUs
