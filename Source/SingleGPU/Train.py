@@ -6,7 +6,7 @@ import time
 import shutil
 import torch
 import torch.nn as nn
-import ExampleNetwork
+import Network
 
 from Trainer import Train, Evaluate
 from Dataset import GetDataLoaders
@@ -31,7 +31,7 @@ def GetNet(configuration):
     else:
         raise ValueError(f"Unknown dataset name {configuration['DatasetName']}")
 
-    net = getattr(ExampleNetwork, configuration["NetName"])(*parameters)
+    net = getattr(Network, configuration["NetName"])(*parameters)
     return net
 
 def TrainWorker(configuration, logFile):
@@ -154,7 +154,7 @@ if __name__ == "__main__":
         "LearnRate": 1e-1,
         "BatchSize": 128,
         "NumOfEpoch": 10,
-        "NetName": "FCNN", # should be defined in ExampleNetwork.py
+        "NetName": "FCNN", # should be defined in Network.py
         "DatasetName": "MNIST", # should be able to be recognized by GetDataLoaders in Dataset.py
         "DataFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Data"),
         "ResultFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Result")
