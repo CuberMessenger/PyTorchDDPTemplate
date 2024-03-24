@@ -38,7 +38,7 @@ def TrainWorker(configuration, logFile):
     """
     Worker function for single GPU training
     """
-    sys.stdout = StandardOutputDuplicator(sys.stdout, logFile)
+    sys.stdout = StandardOutputDuplicator(logFile)
 
     net = GetNet(configuration).cuda()
 

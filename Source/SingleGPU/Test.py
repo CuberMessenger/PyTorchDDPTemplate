@@ -18,7 +18,7 @@ def TestWorker(configuration, logFile):
     """
     Worker function for single GPU testing
     """
-    sys.stdout = StandardOutputDuplicator(sys.stdout, logFile)
+    sys.stdout = StandardOutputDuplicator(logFile)
 
     net = GetNet(configuration).cuda()
     net.load_state_dict(torch.load(os.path.join(configuration["WeightFolder"], "Weights.pkl")))

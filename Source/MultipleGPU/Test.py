@@ -34,7 +34,7 @@ def DDPTestWorker(rank, worldSize, sharedDictionary):
     configuration = sharedDictionary["Configuration"]
     if rank == 0:
         logFile = open(os.path.join(configuration["SaveFolder"], "Log.txt"), mode = "w")
-        sys.stdout = StandardOutputDuplicator(sys.stdout, logFile)
+        sys.stdout = StandardOutputDuplicator(logFile)
 
     SetupEnvironment(rank, worldSize)
 

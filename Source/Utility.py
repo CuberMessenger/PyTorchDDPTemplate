@@ -1,9 +1,11 @@
+import sys
 import csv
 import torch
 
 from dataclasses import dataclass, field
 
-def PrintParameters(parameters, detail = True):
+
+def PrintParameters(parameters, detail=True):
     """
     Print the number of parameters in a torch.nn.Module and return the total count
 
@@ -25,32 +27,61 @@ def PrintParameters(parameters, detail = True):
     print(f"Total -> {count}\n")
     return count
 
+
 @dataclass
 class Result:
     """
     A simple dataclass to store and help saving the training result including only loss and accuracy
     """
-    TrainLoss: list = field(default_factory = list)
-    ValidationLoss: list = field(default_factory = list)
-    TestLoss: list = field(default_factory = list)
-    
-    TrainAccuracy: list = field(default_factory = list)
-    ValidationAccuracy: list = field(default_factory = list)
-    TestAccuracy: list = field(default_factory = list)
 
-    def Append(self, trainLoss, trainAccuracy, validationLoss, validationAccuracy, testLoss, testAccuracy):
+    TrainLoss: list = field(default_factory=list)
+    ValidationLoss: list = field(default_factory=list)
+    TestLoss: list = field(default_factory=list)
+
+    TrainAccuracy: list = field(default_factory=list)
+    ValidationAccuracy: list = field(default_factory=list)
+    TestAccuracy: list = field(default_factory=list)
+
+    def Append(
+        self,
+        trainLoss,
+        trainAccuracy,
+        validationLoss,
+        validationAccuracy,
+        testLoss,
+        testAccuracy,
+    ):
         self.TrainLoss.append(trainLoss)
         self.TrainAccuracy.append(trainAccuracy)
         self.ValidationLoss.append(validationLoss)
         self.ValidationAccuracy.append(validationAccuracy)
         self.TestLoss.append(testLoss)
         self.TestAccuracy.append(testAccuracy)
-        
+
     def Save(self, path):
-        with open(path, mode = "w", newline = "") as csvFile:
+        with open(path, mode="w", newline="") as csvFile:
             csvWriter = csv.writer(csvFile)
-            csvWriter.writerow(["TrainLoss", "TrainAccuracy", "ValidationLoss", "ValidationAccuracy", "TestLoss", "TestAccuracy"])
-            csvWriter.writerows(zip(self.TrainLoss, self.TrainAccuracy, self.ValidationLoss, self.ValidationAccuracy, self.TestLoss, self.TestAccuracy))
+            csvWriter.writerow(
+                [
+                    "TrainLoss",
+                    "TrainAccuracy",
+                    "ValidationLoss",
+                    "ValidationAccuracy",
+                    "TestLoss",
+                    "TestAccuracy",
+                ]
+            )
+            csvWriter.writerows(
+                zip(
+                    self.TrainLoss,
+                    self.TrainAccuracy,
+                    self.ValidationLoss,
+                    self.ValidationAccuracy,
+                    self.TestLoss,
+                    self.TestAccuracy,
+                )
+            )
+
 
 def TimingCuda(target):
     """
@@ -61,8 +92,8 @@ def TimingCuda(target):
     target : function
         A function with no parameters to be measured
     """
-    start = torch.cuda.Event(enable_timing = True)
-    end = torch.cuda.Event(enable_timing = True)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
 
     start.record()
     target()
@@ -72,8 +103,10 @@ def TimingCuda(target):
 
     return start.elapsed_time(end)
 
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self, name):
         self.Name = name
         self.Reset()
@@ -84,7 +117,7 @@ class AverageMeter(object):
         self.Sum = 0
         self.Count = 0
 
-    def Update(self, value, n = 1):
+    def Update(self, value, n=1):
         self.Value = value
         self.Sum += value * n
         self.Count += n
@@ -92,12 +125,15 @@ class AverageMeter(object):
 
     def AllReduce(self):
         device = torch.device("cuda")
-        total = torch.tensor([self.Sum, self.Count], dtype = torch.float32, device = device)
-        torch.distributed.all_reduce(total, torch.distributed.ReduceOp.SUM, async_op = False)
+        total = torch.tensor([self.Sum, self.Count], dtype=torch.float32, device=device)
+        torch.distributed.all_reduce(
+            total, torch.distributed.ReduceOp.SUM, async_op=False
+        )
         self.Sum, self.Count = total.tolist()
         self.Average = self.Sum / self.Count
 
-def TopKAccuracy(output, target, topk = (1,)):
+
+def TopKAccuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
     with torch.no_grad():
         maxk = max(topk)
@@ -113,20 +149,31 @@ def TopKAccuracy(output, target, topk = (1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
+
 class StandardOutputDuplicator:
     """
     Helper class for duplicating the standard output to multiple streams
 
     A typical usage is to duplicate the standard output to both a file and the console
-    
+
     Example:
     logFile = open("Log.log" mode = "w")
-    sys.stdout = StandardOutputDuplicator(sys.stdout, logFile)
+    sys.stdout = StandardOutputDuplicator(logFile)
+
+    or
+
+    sys.stdout = StandardOutputDuplicator(logFile1, logFile2, ...)
 
     Note that, only duplicate the output in the main process in multiprocessing scenario
     """
+
+    OriginalSystemStandardOutput = None
+
     def __init__(self, *streams):
-        self.Streams = streams
+        if StandardOutputDuplicator.OriginalSystemStandardOutput is None:
+            StandardOutputDuplicator.OriginalSystemStandardOutput = sys.stdout
+
+        self.Streams = streams + (StandardOutputDuplicator.OriginalSystemStandardOutput,)
 
     def write(self, data):
         for stream in self.Streams:
@@ -134,6 +181,7 @@ class StandardOutputDuplicator:
 
     def flush(self):
         pass
+
 
 def MemoryUsage(rank):
     """Memory usage in MB"""
