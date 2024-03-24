@@ -6,11 +6,13 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 
+
 class ImageNetDataset(Dataset):
     """
     This is a modified dataset class for ImageNet
     """
-    def __init__(self, root, split, transform = None):
+
+    def __init__(self, root, split, transform=None):
         self.Samples = []
         self.Targets = []
         self.Transform = transform
@@ -23,7 +25,7 @@ class ImageNetDataset(Dataset):
 
         with open(os.path.join(root, "ILSVRC2012_val_labels.json"), "rb") as jsonFile:
             self.ValToSyn = json.load(jsonFile)
-    
+
         sampleFolders = os.path.join(root, "ILSVRC/Data/CLS-LOC", split)
         for entry in os.listdir(sampleFolders):
             if split == "train":
@@ -50,12 +52,14 @@ class ImageNetDataset(Dataset):
             x = self.Transform(x)
         return x, self.Targets[index]
 
+
 class DatasetWithIdentity(Dataset):
     """
     A dataset class that returns both the sample and its identity
     If you wrap a dataset with this class, the returned tuple will be (sample, identity, index)
     It is convenient to use this class to get the index of a sample, especially in DDP scneario
     """
+
     def __init__(self, dataset: Dataset):
         self.Dataset = dataset
 
@@ -67,11 +71,12 @@ class DatasetWithIdentity(Dataset):
         toReturn = toReturn + (index,)
         return toReturn
 
-def GetDataLoaders(datasetName, batchSize, numOfWorker, saveFolder, distributed = False):
+
+def GetDataLoaders(datasetName, batchSize, numOfWorker, saveFolder, distributed=False):
     """
     Return train, validation and test data loaders
     If no validation set is available, the validation loader is a loader object with no data
-    
+
     Parameters
     ----------
     datasetName : str
@@ -90,70 +95,87 @@ def GetDataLoaders(datasetName, batchSize, numOfWorker, saveFolder, distributed 
         If True, the data loaders are created with distributed samplers
     """
     if "MNIST" in datasetName:
-        transform = transforms.Compose([
-            transforms.Resize((32, 32)),
-            transforms.ToTensor(),
-            transforms.Normalize(0.5, 0.25)
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.Resize((32, 32)),
+                transforms.ToTensor(),
+                transforms.Normalize(0.5, 0.25),
+            ]
+        )
 
-        trainSet = datasets.MNIST(root = saveFolder, train = True, transform = transform, download = True)
-        trainSet, validationSet = torch.utils.data.random_split(trainSet, [50000, 10000])
-        testSet = datasets.MNIST(root = saveFolder, train = False, transform = transform, download = True)
+        trainSet = datasets.MNIST(
+            root=saveFolder, train=True, transform=transform, download=True
+        )
+        trainSet, validationSet = torch.utils.data.random_split(
+            trainSet, [50000, 10000]
+        )
+        testSet = datasets.MNIST(
+            root=saveFolder, train=False, transform=transform, download=True
+        )
     elif "CIFAR" in datasetName:
         mean = [0.4914, 0.4822, 0.4465]
         std = [0.2023, 0.1994, 0.2010]
 
-        trainTransform = transforms.Compose([
-            transforms.RandomAffine(
-                degrees = 15,
-                translate = (0.1, 0.1)
-            ),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std)
-        ])
+        trainTransform = transforms.Compose(
+            [
+                transforms.RandomAffine(degrees=15, translate=(0.1, 0.1)),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean, std),
+            ]
+        )
 
-        evaluationTransform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std)
-        ])
+        evaluationTransform = transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize(mean, std)]
+        )
 
-        trainSet = getattr(datasets, datasetName)(root = saveFolder, train = True, transform = trainTransform, download = True)
+        trainSet = getattr(datasets, datasetName)(
+            root=saveFolder, train=True, transform=trainTransform, download=True
+        )
         trainSet, validationSet = torch.utils.data.random_split(trainSet, [50000, 0])
-        testSet = getattr(datasets, datasetName)(root = saveFolder, train = False, transform = evaluationTransform, download = True)
+        testSet = getattr(datasets, datasetName)(
+            root=saveFolder, train=False, transform=evaluationTransform, download=True
+        )
     elif datasetName == "ImageNet":
         mean = (0.485, 0.456, 0.406)
         std = (0.229, 0.224, 0.225)
-        transform = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean, std),
+            ]
+        )
 
-        trainSet = ImageNetDataset(root = saveFolder, split = "train", transform = transform)
+        trainSet = ImageNetDataset(root=saveFolder, split="train", transform=transform)
         trainSet, validationSet = torch.utils.data.random_split(trainSet, [1281167, 0])
-        testSet = ImageNetDataset(root = saveFolder, split = "val", transform = transform)
+        testSet = ImageNetDataset(root=saveFolder, split="val", transform=transform)
     elif datasetName == "TinyImageNet":
         mean = (0.485, 0.456, 0.406)
         std = (0.229, 0.224, 0.225)
-        trainTransform = transforms.Compose([
-            transforms.RandomAffine(
-                degrees = 10,
-                translate = (0.1, 0.1)
-            ),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
-        ])
-        testTransform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
-        ])
+        trainTransform = transforms.Compose(
+            [
+                transforms.RandomAffine(degrees=10, translate=(0.1, 0.1)),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean, std),
+            ]
+        )
+        testTransform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(mean, std),
+            ]
+        )
 
-        trainSet = datasets.ImageFolder(root = os.path.join(saveFolder, "train"), transform = trainTransform)
+        trainSet = datasets.ImageFolder(
+            root=os.path.join(saveFolder, "train"), transform=trainTransform
+        )
         trainSet, validationSet = torch.utils.data.random_split(trainSet, [100000, 0])
-        testSet = datasets.ImageFolder(root = os.path.join(saveFolder, "val"), transform = testTransform)
+        testSet = datasets.ImageFolder(
+            root=os.path.join(saveFolder, "val"), transform=testTransform
+        )
     else:
         raise Exception(f"Unknown dataset name {datasetName}")
 
@@ -168,26 +190,46 @@ def GetDataLoaders(datasetName, batchSize, numOfWorker, saveFolder, distributed 
     persistentWorkers = numOfWorker > 0
     trainSampler, validationSampler, testSampler = None, None, None
     if distributed:
-        trainSampler = torch.utils.data.distributed.DistributedSampler(trainSet, drop_last = True)
-        validationSampler = torch.utils.data.distributed.DistributedSampler(validationSet, shuffle = False, drop_last = True)
-        testSampler = torch.utils.data.distributed.DistributedSampler(testSet, shuffle = False, drop_last = True)
+        trainSampler = torch.utils.data.distributed.DistributedSampler(
+            trainSet, drop_last=True
+        )
+        validationSampler = torch.utils.data.distributed.DistributedSampler(
+            validationSet, shuffle=False, drop_last=True
+        )
+        testSampler = torch.utils.data.distributed.DistributedSampler(
+            testSet, shuffle=False, drop_last=True
+        )
     trainLoader = torch.utils.data.DataLoader(
-        trainSet, batch_size = batchSize, shuffle = not distributed, sampler = trainSampler,
-        num_workers = numOfWorker, persistent_workers = persistentWorkers, pin_memory = True
+        trainSet,
+        batch_size=batchSize,
+        shuffle=not distributed,
+        sampler=trainSampler,
+        num_workers=numOfWorker,
+        persistent_workers=persistentWorkers,
+        pin_memory=True,
     )
     validationLoader = torch.utils.data.DataLoader(
-        validationSet, batch_size = batchSize, sampler = validationSampler,
-        num_workers = numOfWorker, persistent_workers = persistentWorkers, pin_memory = True
+        validationSet,
+        batch_size=batchSize,
+        sampler=validationSampler,
+        num_workers=numOfWorker,
+        persistent_workers=persistentWorkers,
+        pin_memory=True,
     )
     testLoader = torch.utils.data.DataLoader(
-        testSet, batch_size = batchSize, sampler = testSampler,
-        num_workers = numOfWorker, persistent_workers = persistentWorkers, pin_memory = True
+        testSet,
+        batch_size=batchSize,
+        sampler=testSampler,
+        num_workers=numOfWorker,
+        persistent_workers=persistentWorkers,
+        pin_memory=True,
     )
 
     if distributed:
         return trainLoader, validationLoader, testLoader, trainSampler
     else:
         return trainLoader, validationLoader, testLoader
+
 
 if __name__ == "__main__":
     train, val, test = GetDataLoaders("TinyImageNet", 100, 10, "../tiny-imagenet-200")

@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 import time
@@ -14,6 +15,7 @@ from Trainer import Train, Evaluate
 from Dataset import GetDataLoaders
 from Utility import Result, StandardOutputDuplicator
 
+
 def SetupEnvironment(rank, worldSize):
     """
     Initialize the environment for distributed training
@@ -24,12 +26,11 @@ def SetupEnvironment(rank, worldSize):
     os.environ["MASTER_PORT"] = "31428"
 
     torch.distributed.init_process_group(
-        backend = "nccl",
-        rank = rank,
-        world_size = worldSize
+        backend="nccl", rank=rank, world_size=worldSize
     )
 
     torch.cuda.set_device(rank)
+
 
 def CleanEnvironment():
     """
@@ -37,6 +38,7 @@ def CleanEnvironment():
     Should be called at the end of the worker process
     """
     torch.distributed.destroy_process_group()
+
 
 def GetNet(configuration):
     """
@@ -60,6 +62,7 @@ def GetNet(configuration):
     net = getattr(Network, configuration["NetName"])(*parameters)
     return net
 
+
 def DDPTrainWorker(rank, worldSize, sharedDictionary):
     """
     Worker function for parallel training
@@ -69,7 +72,7 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
     ----------
     rank : int
         The rank of current process, used for logging
-    
+
     worldSize : int
         The number of processes, used for logging
 
@@ -78,26 +81,25 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
     """
     configuration = sharedDictionary["Configuration"]
     if rank == 0:
-        logFile = open(os.path.join(configuration["SaveFolder"], "Log.txt"), mode = "w")
+        logFile = open(os.path.join(configuration["SaveFolder"], "Log.txt"), mode="w")
         sys.stdout = StandardOutputDuplicator(logFile)
 
     SetupEnvironment(rank, worldSize)
 
     torch.cuda.set_device(rank)
     net = GetNet(configuration).cuda()
-    net = nn.parallel.DistributedDataParallel(net, device_ids = [rank])
+    net = nn.parallel.DistributedDataParallel(net, device_ids=[rank])
 
     lossFunction = nn.CrossEntropyLoss().cuda()
     optimizer = torch.optim.SGD(
         net.parameters(),
-        lr = configuration["LearnRate"],
-        weight_decay = 0.0005,
-        momentum = 0.9,
-        nesterov = True
+        lr=configuration["LearnRate"],
+        weight_decay=0.0005,
+        momentum=0.9,
+        nesterov=True,
     )
     scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer,
-        lambda epoch: configuration["LearnRate"] * (0.5 ** (epoch // 10))
+        optimizer, lambda epoch: configuration["LearnRate"] * (0.5 ** (epoch // 10))
     )
 
     # A injector can be injected into the beginning of each epoch with parameters (net, epoch)
@@ -108,7 +110,7 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
         configuration["BatchSize"],
         configuration["NumOfWorker"],
         configuration["DataFolder"],
-        distributed = True
+        distributed=True,
     )
 
     bestEpoch = 1
@@ -125,15 +127,19 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
 
         # Train one epoch
         trainLoss, trainAccuracy = Train(
-            trainLoader, net, optimizer,
-            lossFunction, epoch, rank, mode = "multiple"
+            trainLoader, net, optimizer, lossFunction, epoch, rank, mode="multiple"
         )
 
         # Do evaluation (some dataset has no validation set)
         if len(validationLoader.dataset) > 0:
             validationLoss, validationAccuracy, _ = Evaluate(
-                validationLoader, net, lossFunction,
-                "Validation", rank, worldSize, mode = "multiple"
+                validationLoader,
+                net,
+                lossFunction,
+                "Validation",
+                rank,
+                worldSize,
+                mode="multiple",
             )
         else:
             validationLoss, validationAccuracy = None, None
@@ -141,8 +147,7 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
         # Do evaluation on test set
         # Set testLoss and testAccuracy to None if you don't want to do it every epoch
         testLoss, testAccuracy, _ = Evaluate(
-            testLoader, net, lossFunction,
-            "Test", rank, worldSize, mode = "multiple"
+            testLoader, net, lossFunction, "Test", rank, worldSize, mode="multiple"
         )
 
         # Step the learn rate scheduler
@@ -152,9 +157,12 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
         # Logging and saving the best model to the save folder on the main process
         if rank == 0:
             result.Append(
-                trainLoss, trainAccuracy,
-                validationLoss, validationAccuracy,
-                testLoss, testAccuracy
+                trainLoss,
+                trainAccuracy,
+                validationLoss,
+                validationAccuracy,
+                testLoss,
+                testAccuracy,
             )
 
             if len(validationLoader.dataset) > 0:
@@ -164,7 +172,10 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
 
             if indicator < bestIndicator:
                 bestEpoch = epoch
-                torch.save(net.state_dict(), os.path.join(configuration["SaveFolder"], f"Weights.pkl"))
+                torch.save(
+                    net.state_dict(),
+                    os.path.join(configuration["SaveFolder"], f"Weights.pkl"),
+                )
             bestIndicator = min(bestIndicator, indicator)
 
     if rank == 0:
@@ -172,7 +183,8 @@ def DDPTrainWorker(rank, worldSize, sharedDictionary):
         sharedDictionary["Result"] = result
 
     CleanEnvironment()
-        
+
+
 def Main(configuration):
     """
     Spawn processes for the parallel training
@@ -182,7 +194,7 @@ def Main(configuration):
 
     saveFolder = os.path.join(
         configuration["ResultFolder"],
-        f"{configuration['NetName']}-{configuration['DatasetName']}-{time.strftime('%Y-%m-%d-%H.%M.%S', time.localtime())}"
+        f"{configuration['NetName']}-{configuration['DatasetName']}-{time.strftime('%Y-%m-%d-%H.%M.%S', time.localtime())}",
     )
     os.mkdir(saveFolder)
     configuration["SaveFolder"] = saveFolder
@@ -191,11 +203,13 @@ def Main(configuration):
         with mp.Manager() as manager:
             sharedDictionary = manager.dict({"Configuration": configuration})
 
-            configuration["BatchSize"] = configuration["BatchSize"] // configuration["NumOfGPU"]
+            configuration["BatchSize"] = (
+                configuration["BatchSize"] // configuration["NumOfGPU"]
+            )
             mp.spawn(
                 DDPTrainWorker,
-                args = (configuration["NumOfGPU"], sharedDictionary),
-                nprocs = configuration["NumOfGPU"]
+                args=(configuration["NumOfGPU"], sharedDictionary),
+                nprocs=configuration["NumOfGPU"],
             )
 
             sharedDictionary = dict(sharedDictionary)
@@ -204,13 +218,15 @@ def Main(configuration):
         shutil.rmtree(configuration["SaveFolder"])
         raise e
     else:
-        sharedDictionary["Result"].Save(os.path.join(configuration["SaveFolder"], f"Result.txt"))
+        sharedDictionary["Result"].Save(
+            os.path.join(configuration["SaveFolder"], f"Result.txt")
+        )
 
         # Log the source code
         shutil.copy(
-            __file__,
-            os.path.join(configuration["SaveFolder"], "TrainScript.py")
+            __file__, os.path.join(configuration["SaveFolder"], "TrainScript.py")
         )
+
 
 if __name__ == "__main__":
     configuration = {
@@ -219,14 +235,14 @@ if __name__ == "__main__":
         "LearnRate": 1e-1,
         "BatchSize": 128,
         "NumOfEpoch": 10,
-        "NetName": "FCNN", # should be defined in Network.py
-        "DatasetName": "MNIST", # should be able to be recognized by GetDataLoaders in Dataset.py
+        "NetName": "FCNN",  # should be defined in Network.py
+        "DatasetName": "MNIST",  # should be able to be recognized by GetDataLoaders in Dataset.py
         "DataFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Data"),
-        "ResultFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Result")
+        "ResultFolder": os.path.join(os.path.dirname(__file__), "..", "..", "Result"),
     }
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num-of-gpu", type = int)
+    parser.add_argument("--num-of-gpu", type=int)
     args = parser.parse_args()
 
     if args.num_of_gpu is None:

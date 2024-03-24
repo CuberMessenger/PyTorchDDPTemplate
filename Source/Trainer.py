@@ -3,7 +3,8 @@ import torch
 
 from Utility import AverageMeter, TopKAccuracy
 
-def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "multiple"):
+
+def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode="multiple"):
     """
     Train one epoch with given data loader, network, optimizer and loss function
 
@@ -13,7 +14,7 @@ def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "multip
 
     net : torch.nn.Module
         Should be on cuda device already
-    
+
     optimizer : torch.optim.Optimizer
 
     lossFunction : torch.nn.Module
@@ -46,8 +47,8 @@ def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "multip
         loss = lossFunction(batchPredict, batchLabel)
 
         losses.Update(loss.item(), batchData.size(0))
-        top1accuracy = TopKAccuracy(batchPredict, batchLabel, topk = (1,))
-        top5accuracy = TopKAccuracy(batchPredict, batchLabel, topk = (5,))
+        top1accuracy = TopKAccuracy(batchPredict, batchLabel, topk=(1,))
+        top5accuracy = TopKAccuracy(batchPredict, batchLabel, topk=(5,))
         top1Accuracies.Update(top1accuracy[0], batchData.size(0))
         top5Accuracies.Update(top5accuracy[0], batchData.size(0))
 
@@ -76,6 +77,7 @@ def Train(trainLoader, net, optimizer, lossFunction, epoch, rank, mode = "multip
 
     return losses.Average, top1Accuracies.Average
 
+
 def EvaluateSingle(testLoader, net, lossFunction, name):
     """
     Evaluate the network with given data loader and loss function
@@ -101,7 +103,7 @@ def EvaluateSingle(testLoader, net, lossFunction, name):
         batchPredictions = []
         with torch.no_grad():
             startTime = time.perf_counter_ns()
-            for batchData, batchLabel, _ in loader: 
+            for batchData, batchLabel, _ in loader:
                 batchData = batchData.cuda()
                 batchLabel = batchLabel.cuda()
 
@@ -111,8 +113,8 @@ def EvaluateSingle(testLoader, net, lossFunction, name):
                 loss = lossFunction(batchPrediction, batchLabel)
 
                 losses.Update(loss.item(), batchData.size(0))
-                top1accuracy = TopKAccuracy(batchPrediction, batchLabel, topk = (1,))
-                top5accuracy = TopKAccuracy(batchPrediction, batchLabel, topk = (5,))
+                top1accuracy = TopKAccuracy(batchPrediction, batchLabel, topk=(1,))
+                top5accuracy = TopKAccuracy(batchPrediction, batchLabel, topk=(5,))
                 top1Accuracies.Update(top1accuracy[0], batchData.size(0))
                 top5Accuracies.Update(top5accuracy[0], batchData.size(0))
 
@@ -135,7 +137,7 @@ def EvaluateSingle(testLoader, net, lossFunction, name):
     Batch 1: 6 samples
     Batch 2: 3 samples
     """
-    predictions = torch.cat(batchPredictions, dim = 0)
+    predictions = torch.cat(batchPredictions, dim=0)
 
     if hasattr(top1Accuracies.Average, "item"):
         top1Accuracies.Average = top1Accuracies.Average.item()
@@ -146,8 +148,9 @@ def EvaluateSingle(testLoader, net, lossFunction, name):
     toPrint += f"{name}:{' ' if len(name) > 4 else '       '}[loss, accuray] -> [{losses.Average:.4e}, ({top1Accuracies.Average:.2f}%, {top5Accuracies.Average:.2f}%)], "
     toPrint += f"bacth time -> {batchTime.Average:.6f}ms"
     print(toPrint)
-        
+
     return losses.Average, top1Accuracies.Average, predictions
+
 
 def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
     """
@@ -192,8 +195,8 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
                 loss = lossFunction(batchPrediction, batchLabel)
 
                 losses.Update(loss.item(), batchData.size(0))
-                top1accuracy = TopKAccuracy(batchPrediction, batchLabel, topk = (1,))
-                top5accuracy = TopKAccuracy(batchPrediction, batchLabel, topk = (5,))
+                top1accuracy = TopKAccuracy(batchPrediction, batchLabel, topk=(1,))
+                top5accuracy = TopKAccuracy(batchPrediction, batchLabel, topk=(5,))
                 top1Accuracies.Update(top1accuracy[0], batchData.size(0))
                 top5Accuracies.Update(top5accuracy[0], batchData.size(0))
 
@@ -324,15 +327,19 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
     predictions = []
     for batchIndex, batchPrediction in zip(batchIndexes, batchPredictions):
         gatheredBatchIndex = [torch.zeros_like(batchIndex) for _ in range(worldSize)]
-        torch.distributed.all_gather(gatheredBatchIndex, batchIndex, async_op = False)
-        indexes.append(torch.cat(gatheredBatchIndex, dim = 0))
+        torch.distributed.all_gather(gatheredBatchIndex, batchIndex, async_op=False)
+        indexes.append(torch.cat(gatheredBatchIndex, dim=0))
 
-        gatheredBatchPrediction = [torch.zeros_like(batchPrediction) for _ in range(worldSize)]
-        torch.distributed.all_gather(gatheredBatchPrediction, batchPrediction, async_op = False)
-        predictions.append(torch.cat(gatheredBatchPrediction, dim = 0))
+        gatheredBatchPrediction = [
+            torch.zeros_like(batchPrediction) for _ in range(worldSize)
+        ]
+        torch.distributed.all_gather(
+            gatheredBatchPrediction, batchPrediction, async_op=False
+        )
+        predictions.append(torch.cat(gatheredBatchPrediction, dim=0))
 
-    indexes = torch.cat(indexes, dim = 0)
-    predictions = torch.cat(predictions, dim = 0)
+    indexes = torch.cat(indexes, dim=0)
+    predictions = torch.cat(predictions, dim=0)
 
     """
     Here, we first do the all reduce for the loss and accuracy objects
@@ -348,16 +355,22 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
         # print(f"GPU {rank}: Constructing auxiliary dataset")
         auxiliaryTestDataset = torch.utils.data.Subset(
             testLoader.dataset,
-            range(len(testLoader.sampler) * worldSize, len(testLoader.dataset))
+            range(len(testLoader.sampler) * worldSize, len(testLoader.dataset)),
         )
         auxiliaryTestLoader = torch.utils.data.DataLoader(
-            auxiliaryTestDataset, batch_size = testLoader.batch_size, shuffle = False,
-            num_workers = testLoader.num_workers, persistent_workers = testLoader.persistent_workers, pin_memory = True
+            auxiliaryTestDataset,
+            batch_size=testLoader.batch_size,
+            shuffle=False,
+            num_workers=testLoader.num_workers,
+            persistent_workers=testLoader.persistent_workers,
+            pin_memory=True,
         )
-        auxiliaryBatchIndexes, auxiliaryBatchPredictions = EvaluateLoop(auxiliaryTestLoader)
+        auxiliaryBatchIndexes, auxiliaryBatchPredictions = EvaluateLoop(
+            auxiliaryTestLoader
+        )
 
-        indexes = torch.cat([indexes] + auxiliaryBatchIndexes, dim = 0)
-        predictions = torch.cat([predictions] + auxiliaryBatchPredictions, dim = 0)
+        indexes = torch.cat([indexes] + auxiliaryBatchIndexes, dim=0)
+        predictions = torch.cat([predictions] + auxiliaryBatchPredictions, dim=0)
 
     predictions = predictions[indexes.argsort()]
 
@@ -394,8 +407,9 @@ def EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize):
         toPrint += f"{name}:{' ' if len(name) > 4 else '       '}[loss, accuray] -> [{losses.Average:.4e}, ({top1Accuracies.Average:.2f}%, {top5Accuracies.Average:.2f}%)], "
         toPrint += f"bacth time -> {batchTime.Average:.6f}ms"
         print(toPrint)
-        
+
     return losses.Average, top1Accuracies.Average, predictions
+
 
 def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode):
     """
@@ -415,4 +429,4 @@ def Evaluate(testLoader, net, lossFunction, name, rank, worldSize, mode):
         return EvaluateSingle(testLoader, net, lossFunction, name)
     if mode == "multiple":
         return EvaluateMultiple(testLoader, net, lossFunction, name, rank, worldSize)
-    raise Exception(f"Bad parameter \"mode\": {mode}")
+    raise Exception(f'Bad parameter "mode": {mode}')

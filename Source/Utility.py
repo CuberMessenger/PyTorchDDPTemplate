@@ -173,7 +173,9 @@ class StandardOutputDuplicator:
         if StandardOutputDuplicator.OriginalSystemStandardOutput is None:
             StandardOutputDuplicator.OriginalSystemStandardOutput = sys.stdout
 
-        self.Streams = streams + (StandardOutputDuplicator.OriginalSystemStandardOutput,)
+        self.Streams = streams + (
+            StandardOutputDuplicator.OriginalSystemStandardOutput,
+        )
 
     def write(self, data):
         for stream in self.Streams:
